@@ -32,50 +32,80 @@ void FPluginDownloaderApi::Initialize()
 	}
 	bInitialized = true;
 
-	const FHttpRequestRef Request = FHttpModule::Get().CreateRequest();
-	Request->SetURL("https://raw.githubusercontent.com/Phyronnaz/PluginDownloaderData/master/Plugins.json");
-	Request->SetVerb(TEXT("GET"));
-	Request->OnProcessRequestComplete().BindLambda([=](FHttpRequestPtr, FHttpResponsePtr HttpResponse, bool bSucceeded)
+	FString DefaultPluginDownloaderDataUri = "https://raw.githubusercontent.com/Phyronnaz/PluginDownloaderData/master/Plugins.json";
+
+	TArray<FString> DownloaderDataUris;
+	DownloaderDataUris.AddUnique(DefaultPluginDownloaderDataUri);
+
+	TArray<FString> CustomDownloaderDataUris = GetDefault<UPluginDownloaderSettings>()->CustomPluginDownloaderDataJsonUris;
+	for(FString CustomDownloaderDataUri : CustomDownloaderDataUris)
 	{
-		if (!bSucceeded ||
-			HttpResponse->GetResponseCode() != EHttpResponseCodes::Ok)
+		if(!CustomDownloaderDataUri.IsEmpty())
 		{
-			return;
+			DownloaderDataUris.AddUnique(CustomDownloaderDataUri);
 		}
-		ensure(GPluginDownloaderRemoteInfos.Num() == 0);
+	}
 
-		TSharedPtr<FJsonValue> ParsedValue;
-		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(HttpResponse->GetContentAsString());
-		if (!FJsonSerializer::Deserialize(Reader, ParsedValue))
+	NumberOfRepos = DownloaderDataUris.Num();
+	NumberOfReposProcessed = 0;
+
+	for(auto DownloaderDataUri : DownloaderDataUris)
+	{
+		const FHttpRequestRef Request = FHttpModule::Get().CreateRequest();
+
+		Request->SetURL(DownloaderDataUri);
+
+		Request->SetVerb(TEXT("GET"));
+		Request->OnProcessRequestComplete().BindLambda([=](FHttpRequestPtr, FHttpResponsePtr HttpResponse, bool bSucceeded)
 		{
-			return;
-		}
-
-		for (const TSharedPtr<FJsonValue>& JsonValue : ParsedValue->AsArray())
-		{
-			if (!JsonValue)
+			if (!bSucceeded ||
+				HttpResponse->GetResponseCode() != EHttpResponseCodes::Ok)
 			{
-				continue;
+				return;
 			}
-			const TSharedPtr<FJsonObject> JsonObject = JsonValue->AsObject();
-			if (!ensure(JsonObject))
+			ensure(GPluginDownloaderRemoteInfos.Num() == 0);
+
+			TSharedPtr<FJsonValue> ParsedValue;
+			const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(HttpResponse->GetContentAsString());
+			if (!FJsonSerializer::Deserialize(Reader, ParsedValue))
 			{
-				continue;
+				return;
 			}
 
-			const TSharedRef<FPluginDownloaderRemoteInfo> Info = MakeShared<FPluginDownloaderRemoteInfo>();
-
-			if (ensure(FJsonObjectConverter::JsonObjectToUStruct(JsonObject.ToSharedRef(), &Info.Get())))
+			for (const TSharedPtr<FJsonValue>& JsonValue : ParsedValue->AsArray())
 			{
-				FixupBranchName(Info->StableBranch);
-				for (auto& It : Info->Branches)
+				if (!JsonValue)
 				{
-					FixupBranchName(It.Key);
+					continue;
 				}
-				GPluginDownloaderRemoteInfos.Add(Info);
-			}
-		}
+				const TSharedPtr<FJsonObject> JsonObject = JsonValue->AsObject();
+				if (!ensure(JsonObject))
+				{
+					continue;
+				}
 
+				const TSharedRef<FPluginDownloaderRemoteInfo> Info = MakeShared<FPluginDownloaderRemoteInfo>();
+
+				if (ensure(FJsonObjectConverter::JsonObjectToUStruct(JsonObject.ToSharedRef(), &Info.Get())))
+				{
+					FixupBranchName(Info->StableBranch);
+					for (auto& It : Info->Branches)
+					{
+						FixupBranchName(It.Key);
+					}
+					GPluginDownloaderRemoteInfos.Add(Info);
+				}
+			}
+		});
+		Request->ProcessRequest();
+	}
+}
+
+void FPluginDownloaderApi::OnProcessedDownloaderDataEntry()
+{
+	NumberOfReposProcessed++;
+	if(NumberOfReposProcessed>=NumberOfRepos)
+	{		
 		for (const TSharedRef<FPluginDownloaderRemoteInfo>& Info : GPluginDownloaderRemoteInfos)
 		{
 			FPluginDownloaderUpdates::CheckForUpdate(*Info);
@@ -87,8 +117,7 @@ void FPluginDownloaderApi::Initialize()
 		GPluginDownloaderRemoteInfos.Add(CustomInfo);
 
 		GOnPluginDownloaderRemoteInfosChanged.Broadcast();
-	});
-	Request->ProcessRequest();
+	}
 }
 
 void FPluginDownloaderApi::FixupBranchName(FString& BranchName)

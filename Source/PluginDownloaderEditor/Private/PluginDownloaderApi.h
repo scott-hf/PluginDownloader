@@ -14,7 +14,11 @@ extern FSimpleMulticastDelegate GOnPluginDownloaderRemoteInfosChanged;
 
 struct FPluginDownloaderApi
 {
+	static int NumberOfRepos = 1;
+	static int NumberOfReposProcessed = 0;
+	
 	static void Initialize();
+	static void OnProcessedDownloaderDataEntry();
 	static void FixupBranchName(FString& BranchName);
 
 	static void GetRepoAutocomplete(const FPluginDownloaderInfo& Info, FOnAutocompleteReceived OnAutocompleteReceived, bool bIsOrganization = true);

@@ -30,6 +30,9 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Plugin Downloader")
     bool bShowVoxelPluginDevVersions = false;
 
+	UPROPERTY(Config, EditAnywhere, Category = "Plugin Downloader")
+    TArray<FString> CustomPluginDownloaderDataJsonUris;
+
     //~ Begin UDeveloperSettings Interface
     virtual FName GetContainerName() const override;
     virtual void PostInitProperties() override;
